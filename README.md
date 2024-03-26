@@ -1,4 +1,4 @@
 ### Hi there 👋
-I do stuff.
+I do random programming stuff.
 
 [oddcell.ca](oddcell.ca)
