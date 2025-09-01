@@ -1,0 +1,174 @@
+#!/bin/sh
+# Run busybox shell in tmpfs
+# licenced under the unlicence
+# copyleft theoddcell
+# oddcell.ca
+
+# Check required binaries
+if [ "$(id -u)" -eq 0 ]; then
+  echo "Running as root.. uh sure i guess" >&2
+else
+  if command -v sudo >/dev/null 2>&1; then
+    :
+  else
+    echo "Not root and sudo is not available. Please switch to root or install sudo." >&2
+    exit 1
+  fi
+fi
+
+sudo() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  else
+    command sudo "$@"
+  fi
+}
+
+tput() {
+  if command -v tput >/dev/null 2>&1; then
+    command tput "$@"
+  fi
+}
+
+
+export PS1=".r→ " \
+       PS2="--> "
+MNT="$HOME/.tmpfs"
+version="v1.0.0"
+
+# Create $MNT
+mkdir -p "$MNT"
+
+# Mount tmpfs fresh with exec,dev and size options
+sudo mount -t tmpfs -o size=2G,exec,dev tmpfs "$MNT"
+
+# Check if mount succeeded
+if ! mount | grep -q "$MNT"; then
+  echo "Mount failed. Exiting."
+  exit 1
+fi
+
+mkdir -p "$MNT/bin"
+cd "$MNT/bin"
+cp "$HOME/.busybox" ./busybox 2>/dev/null || {
+  echo "Busybox must be provided in '~/.busybox'. Falling back to system busybox."
+  busybox_path=$(which busybox 2>/dev/null)
+  if [ -n "$busybox_path" ]; then
+    cp "$busybox_path" ./busybox
+  else
+    echo "No busybox found in PATH. Aborting. Please install a staticly compiled busybox or place a busybox binary in ~/.busybox"
+    exit 1
+  fi
+}
+chmod +x ./busybox
+for applet in $(./busybox --list); do
+  ln -sf busybox "$applet"
+done
+cat>.ram<<EOF
+#!/bin/tail -n +2
+You are in the .ram shell ${version}.
+You have executed this shell as $(whoami), using the command sh ${0} ${*}
+.ram is licenced under the Unlicence.
+Busybox is licenced under the GPLv2.
+Copyleft TheOddCell
+
+To exit, just type exit.
+EOF
+ln -sf .ram wtfisthis
+chmod +x .ram
+cd ..
+mkdir -p etc
+ln -s bin sbin
+cd ~
+# Proot into tmpfs root
+tput smcup
+if [ "$1" = "-S" ];then
+  if ! command -v rsync >/dev/null 2>&1; then
+    echo "rsync is needed to copy $HOME cleanly. Please install rsync or don't use -S." >&2
+    exit 1
+  fi
+  mkdir -p "${MNT}${HOME}"
+  rsync -a --exclude="${MNT}/" "$HOME"/ "${MNT}${HOME}/"
+  proot -b /etc:/etc \
+        -b /dev:/dev \
+        -b /proc:/proc \
+        -b /lib:/lib \
+        -b /root:/root \
+        -b /lib64:/lib64 \
+        -r "$MNT" "${2:-/bin/sh}"
+elif [ "$1" = "-R" ];then
+  cd /root
+  proot -b /home:/home \
+        -b /etc:/etc \
+        -b /dev:/dev \
+        -b /proc:/proc \
+        -b /lib:/lib \
+        -b /root:/root \
+        -b /lib64:/lib64 \
+        -r "$MNT" "${2:-/bin/sh}" --root-id
+elif [ "$1" = "-H" ];then
+  proot -b /home:/home \
+        -b /etc:/etc \
+        -b /dev:/dev \
+        -b /proc:/proc \
+        -b /lib:/lib \
+        -b /root:/root \
+        -b /lib64:/lib64 \
+        -b "$2":"$2" \
+        -r "$MNT" "$2"
+elif [ "$1" = "-HR" ];then
+  cd /root
+  proot -b /home:/home \
+        -b /etc:/etc \
+        -b /dev:/dev \
+        -b /proc:/proc \
+        -b /lib:/lib \
+        -b /root:/root \
+        -b "$2":"$2" \
+        -b /lib64:/lib64 \
+        -r "$MNT" "$2" --root-id
+elif [ "$1" = "-h" ];then
+  tput rmcup
+  cat<<EOF
+sh .ram - run in ram "extention" to sh
+Usage: sh .ram -HRSUh [input]
+Arguments must be passed in that order.
+Arguments:
+  -H
+    Run selected path from host.
+  -R
+    Run as (fake) root using proot --root-id.
+    Alternatavly, run as real root (without this flag).
+  -S
+    Make the home directory speedy by copying it into ram.
+    No changes in your home directory will persist.
+    Not compatable with any other options.
+  -U
+    Use namespaces instead of proot. Not compatible with any other options.
+  -h
+    Show this help message.
+  [input]
+    Defaults to /bin/sh. The shell (or any other program) is specified here.
+    If using -H, it must be specified and will mount that path to the .ram.
+EOF
+  exit 0
+elif [ "$1" = "-U" ]; then
+  cp /etc/passwd "$MNT/etc/passwd"
+  cp /etc/group "$MNT/etc/group"
+  mkdir "$MNT/root"
+  unshare --fork --pid --mount --user --map-root-user \
+          --mount-proc \
+          chroot "$MNT" "${2:-/bin/sh}"
+else
+  proot -b /home:/home \
+        -b /etc:/etc \
+        -b /dev:/dev \
+        -b /proc:/proc \
+        -b /lib:/lib \
+        -b /root:/root \
+        -b /lib64:/lib64 \
+        -r "$MNT" "${1:-/bin/sh}"
+fi
+# Clean up
+tput rmcup
+sudo umount "$MNT"
