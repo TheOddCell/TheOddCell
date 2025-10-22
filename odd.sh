@@ -1,5 +1,6 @@
 #!/bin/sh
 # create my profile picture from the string odd
+# does not add eyes
 # requires:
 # - identicon
 # - imagemagick
