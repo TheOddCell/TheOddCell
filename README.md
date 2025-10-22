@@ -10,6 +10,4 @@ I do random programming stuff. In XKCD I appear as a guy wearing a beret. I tota
 
 email [me@oddcell.ca](mailto:me@oddcell.ca) or [@obsidianos.xyz](mailto:odd@obsidianos.xyz)
 
-MY PROFILE PICTURE IS NOT THE [DEFAULT IDENTICON](https://github.com/identicons/theoddcell.png), AND CAN BE GENERATED ON ANY UNIX LIKE SYSTEM WITH `printf odd|identicon>odd.png` WHERE `identicon` IS [THIS NEAT PROJECT](https://github.com/dgraham/identicon) AND YOU RECOLOR THE SHAPE.
-
 fun fact: on linux, you can run `cat /proc/sys/kernel/random/boot_id|identicon>/tmp/boot_icon.png` to get a "boot icon"
