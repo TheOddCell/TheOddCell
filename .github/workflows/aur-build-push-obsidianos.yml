@@ -81,7 +81,23 @@ jobs:
     steps:
       - name: Install prerequisites
         run: |
-          pacman -Syu --noconfirm --needed git curl sudo jq
+          pacman -Syu --noconfirm --needed git curl wget sudo jq
+
+      - name: Add ObsidianOS repo
+        # so dependencies already published there can be pulled by pacman
+        # instead of being rebuilt from the aur
+        run: |
+          set -euo pipefail
+          wget -O sign.gpg https://git.tarxz.zip/api/packages/obsidianos/arch/repository.key
+          pacman-key --add sign.gpg
+          pacman-key --lsign-key 'obsidianos@noreply.git.tarxz.zip'
+          cat >> /etc/pacman.conf <<'EOF'
+
+[obsidianos.git.tarxz.zip]
+SigLevel = Required
+Server = https://git.tarxz.zip/api/packages/obsidianos/arch/obsidianos/$arch
+EOF
+          pacman -Sy
 
       - name: Create build user
         # makepkg refuses to run as root

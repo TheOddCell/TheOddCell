@@ -77,7 +77,23 @@ jobs:
     steps:
       - name: Install prerequisites
         run: |
-          pacman -Syu --noconfirm --needed git curl sudo jq
+          pacman -Syu --noconfirm --needed git curl wget sudo jq
+
+      - name: Add odd arch repo
+        # so dependencies already published there can be pulled by pacman
+        # instead of being rebuilt from the aur
+        run: |
+          set -euo pipefail
+          wget -O sign.gpg https://git.tarxz.zip/api/packages/odd/arch/repository.key
+          pacman-key --add sign.gpg
+          pacman-key --lsign-key 'odd@noreply.git.tarxz.zip'
+          cat >> /etc/pacman.conf <<'EOF'
+
+[odd.git.tarxz.zip]
+SigLevel = Required
+Server = https://git.tarxz.zip/api/packages/odd/arch/aur/$arch
+EOF
+          pacman -Sy
 
       - name: Create build user
         # makepkg refuses to run as root
