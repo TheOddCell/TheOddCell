@@ -1,8 +1,10 @@
 # .github/workflows/aur-build-push.yml
 #
 # weekly: builds every non-"-git" package listed in aur-packages.txt and
-# pushes it to your forgejo arch package registry, skipping any version
-# that's already there (checked the same way pacman itself would fetch it).
+# pushes it to your forgejo arch package registry. always builds and
+# pushes; it does not check whether that version is already published
+# (forgejo's own docs don't say what a duplicate push does, so watch the
+# first run's logs to see whether it errors or just overwrites).
 #
 # needs:
 #   - a repo secret FORGEJO_TOKEN: a forgejo access token (or password) for
@@ -12,9 +14,6 @@
 #
 # untested: i don't have a forgejo instance or an aur package to run this
 # against, so the api paths come from forgejo's docs, not a real run.
-# the existence check in particular is a guess at the download url pacman
-# would use (Server = .../arch/<group>/<arch> per forgejo's docs), since
-# forgejo has no documented "does this version exist" endpoint.
 
 name: Build and push AUR packages
 
@@ -26,7 +25,7 @@ on:
 env:
   FORGEJO_URL: https://git.tarxz.zip
   FORGEJO_OWNER: odd
-  FORGEJO_GROUP: aur # the "group" in /api/packages/{owner}/arch/{group}
+  FORGEJO_GROUP: os # the "group" in /api/packages/{owner}/arch/{group}
   ARCH: x86_64
 
 jobs:
@@ -68,21 +67,12 @@ jobs:
 
             sudo -u builder git clone --depth 1 "https://aur.archlinux.org/$pkg.git" "$workdir"
 
-            # build without installing, don't sign (forgejo signs its own copy),
-            # skip if a build for this exact version was already done
+            # build without installing, don't sign (forgejo signs its own copy)
             sudo -u builder bash -c "cd '$workdir' && makepkg --syncdeps --noconfirm --nosign --skippgpcheck --clean"
 
             for file in "$workdir"/*.pkg.tar.zst; do
               [ -e "$file" ] || continue
               fname="$(basename "$file")"
-
-              url="$FORGEJO_URL/api/packages/$FORGEJO_OWNER/arch/$FORGEJO_GROUP/$ARCH/$fname"
-              status="$(curl -s -o /dev/null -w '%{http_code}' -I "$url")"
-
-              if [ "$status" = "200" ]; then
-                echo "$fname already published, skipping"
-                continue
-              fi
 
               echo "publishing $fname"
               curl -fsS -X PUT \
