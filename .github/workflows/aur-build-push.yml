@@ -1,7 +1,8 @@
 # .github/workflows/aur-build-push.yml
 #
-# weekly: builds every non-"-git" package listed in aur-packages.txt and
-# pushes it to your forgejo arch package registry. always builds and
+# weekly: builds every non-"-git" package the AUR_MAINTAINER account
+# maintains on the AUR and pushes it to your forgejo arch package
+# registry. always builds and
 # pushes; it does not check whether that version is already published
 # (forgejo's own docs don't say what a duplicate push does, so watch the
 # first run's logs to see whether it errors or just overwrites).
@@ -9,8 +10,9 @@
 # needs:
 #   - a repo secret FORGEJO_TOKEN: a forgejo access token (or password) for
 #     the account that owns the arch repo, with package write access
-#   - a file aur-packages.txt at the repo root, one aur package name per line
-#     (comments starting with # and blank lines are ignored)
+#   - AUR_MAINTAINER below set to your aur username. the package list is
+#     fetched from the aur rpc api (search by maintainer) each run, so
+#     there's no file to keep in sync
 #
 # untested: i don't have a forgejo instance or an aur package to run this
 # against, so the api paths come from forgejo's docs, not a real run.
@@ -27,6 +29,7 @@ env:
   FORGEJO_OWNER: odd
   FORGEJO_GROUP: aur # the "group" in /api/packages/{owner}/arch/{group}
   ARCH: x86_64
+  AUR_MAINTAINER: odd # your AUR account name
 
 jobs:
   build:
@@ -36,7 +39,7 @@ jobs:
     steps:
       - name: Install prerequisites
         run: |
-          pacman -Sy --noconfirm --needed git curl sudo
+          pacman -Sy --noconfirm --needed git curl sudo jq
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -48,12 +51,19 @@ jobs:
           echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
           chown -R builder:builder "$GITHUB_WORKSPACE"
 
+      - name: Fetch package list from AUR
+        run: |
+          set -euo pipefail
+          curl -fsS "https://aur.archlinux.org/rpc/v5/search/$AUR_MAINTAINER?by=maintainer" \
+            | jq -r '.results[].Name' > packages.txt
+          echo "found $(wc -l < packages.txt) package(s) maintained by $AUR_MAINTAINER:"
+          cat packages.txt
+
       - name: Build and push each package
         run: |
           set -euo pipefail
 
           while IFS= read -r pkg; do
-            pkg="$(echo "$pkg" | sed 's/#.*//;s/[[:space:]]*$//')"
             [ -z "$pkg" ] && continue
             case "$pkg" in
               *-git) echo "skipping VCS package: $pkg"; continue ;;
@@ -83,6 +93,6 @@ jobs:
             done
 
             echo "::endgroup::"
-          done < aur-packages.txt
+          done < packages.txt
         env:
           FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
