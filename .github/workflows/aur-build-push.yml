@@ -1,9 +1,11 @@
 # .github/workflows/aur-build-push.yml
 #
 # weekly: builds every package the AUR_MAINTAINER account maintains on the
-# AUR (skipping -git and -bin ones) and pushes it to your forgejo arch
-# package registry, one parallel job per package. -debug split packages are
-# built but never uploaded. if a package depends on other AUR packages
+# AUR (skipping -bin ones, since there's no source to build) and pushes it
+# to your forgejo arch package registry, one parallel job per package.
+# -git packages are built too, so they'll pick up upstream's latest commit
+# each run. -debug split packages are built but never uploaded. if a
+# package depends on other AUR packages
 # (not in the official repos), those are built and installed first, inside
 # the same job, before the package itself is built.
 #
@@ -42,9 +44,9 @@ jobs:
         id: list
         run: |
           set -euo pipefail
-          # skip -git (vcs) and -bin (prebuilt binary) packages
+          # skip -bin (prebuilt binary) packages, there's no source to build
           packages="$(curl -fsS "https://aur.archlinux.org/rpc/v5/search/$AUR_MAINTAINER?by=maintainer" \
-            | jq -c '[.results[].Name | select((endswith("-git") or endswith("-bin")) | not)]')"
+            | jq -c '[.results[].Name | select(endswith("-bin") | not)]')"
           count="$(echo "$packages" | jq 'length')"
           echo "packages=$packages" >> "$GITHUB_OUTPUT"
           echo "count=$count" >> "$GITHUB_OUTPUT"
