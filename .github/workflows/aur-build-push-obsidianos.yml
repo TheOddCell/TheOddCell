@@ -1,11 +1,9 @@
-# .github/workflows/aur-build-push.yml
+# .github/workflows/aur-build-push-obsidianos.yml
 #
-# weekly: builds every package the AUR_MAINTAINER account maintains on the
-# AUR (skipping -bin ones, since there's no source to build, plus any
-# package with "obsidian" or "obos" in its name, and naevi-git) and pushes
-# it to your forgejo arch package registry, one parallel job per package.
-# the obsidian/obos packages are built separately, by
-# aur-build-push-obsidianos.yml.
+# weekly: builds every package maintained on the AUR by either theoddcell or
+# neoapps-dev whose name contains "obsidian" or "obos" (including -bin ones,
+# unlike aur-build-push.yml) and pushes it to the obsidianos forgejo arch
+# package registry, one parallel job per package.
 # -git packages are built too, so they'll pick up upstream's latest commit
 # each run. -debug split packages are built but never uploaded. if a
 # package depends on other AUR packages
@@ -23,7 +21,7 @@
 # dependency handling in particular comes from the error you pasted, not
 # from a real run.
 
-name: Build and push AUR packages
+name: Build and push AUR packages (ObsidianOS)
 
 on:
   schedule:
@@ -32,9 +30,9 @@ on:
 
 env:
   FORGEJO_URL: https://git.tarxz.zip
-  FORGEJO_OWNER: odd
-  FORGEJO_GROUP: aur # the "group" in /api/packages/{owner}/arch/{group}
-  AUR_MAINTAINER: theoddcell # your AUR account name
+  FORGEJO_OWNER: obsidianos
+  FORGEJO_GROUP: obsidianos # the "group" in /api/packages/{owner}/arch/{group}
+  AUR_MAINTAINERS: theoddcell neoapps-dev # aur account names to pull packages from
 
 jobs:
   list:
@@ -47,17 +45,23 @@ jobs:
         id: list
         run: |
           set -euo pipefail
-          # skip -bin (prebuilt binary) packages, there's no source to build.
-          # also skip anything with "obsidian" or "obos" in the name, and naevi-git specifically.
-          packages="$(curl -fsS "https://aur.archlinux.org/rpc/v5/search/$AUR_MAINTAINER?by=maintainer" \
-            | jq -c '[.results[].Name
-                | select(endswith("-bin") | not)
-                | select(test("obsidian|obos"; "i") | not)
-                | select(. != "naevi-git")]')"
+          # union of both maintainers' packages, keeping only ones with
+          # "obsidian" or "obos" in the name (this workflow, unlike
+          # aur-build-push.yml, does include -bin packages)
+          packages="$(
+            for maintainer in $AUR_MAINTAINERS; do
+              curl -fsS "https://aur.archlinux.org/rpc/v5/search/$maintainer?by=maintainer" \
+                | jq -r '.results[].Name'
+            done \
+              | grep -iE 'obsidian|obos' \
+              | sort -u \
+              | jq -R . \
+              | jq -sc .
+          )"
           count="$(echo "$packages" | jq 'length')"
           echo "packages=$packages" >> "$GITHUB_OUTPUT"
           echo "count=$count" >> "$GITHUB_OUTPUT"
-          echo "found $count package(s) to build for $AUR_MAINTAINER:"
+          echo "found $count package(s) to build:"
           echo "$packages" | jq -r '.[]'
 
   build:
