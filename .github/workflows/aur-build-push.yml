@@ -29,7 +29,7 @@ env:
   FORGEJO_OWNER: odd
   FORGEJO_GROUP: aur # the "group" in /api/packages/{owner}/arch/{group}
   ARCH: x86_64
-  AUR_MAINTAINER: odd # your AUR account name
+  AUR_MAINTAINER: theoddcell # your AUR account name
 
 jobs:
   build:
