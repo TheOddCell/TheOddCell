@@ -153,11 +153,21 @@ jobs:
             case "$pkgname" in *-debug) echo "skipping debug package $(basename "$file")"; continue ;; esac
 
             echo "publishing $(basename "$file")"
-            curl -fsS -X PUT \
+            status="$(curl -sS -o /tmp/upload-response.txt -w '%{http_code}' -X PUT \
               "$FORGEJO_URL/api/packages/$FORGEJO_OWNER/arch/$FORGEJO_GROUP" \
               --user "$FORGEJO_OWNER:$FORGEJO_TOKEN" \
               --header "Content-Type: application/octet-stream" \
-              --data-binary "@$file"
+              --data-binary "@$file")"
+
+            case "$status" in
+              2*) echo "published" ;;
+              409) echo "already published (409), skipping" ;;
+              *)
+                echo "upload failed with http $status:"
+                cat /tmp/upload-response.txt
+                exit 1
+                ;;
+            esac
           done
         env:
           FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
