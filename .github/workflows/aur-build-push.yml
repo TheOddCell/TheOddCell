@@ -1,11 +1,11 @@
 # .github/workflows/aur-build-push.yml
 #
 # weekly: builds every non-"-git" package the AUR_MAINTAINER account
-# maintains on the AUR and pushes it to your forgejo arch package
-# registry. always builds and
-# pushes; it does not check whether that version is already published
-# (forgejo's own docs don't say what a duplicate push does, so watch the
-# first run's logs to see whether it errors or just overwrites).
+# maintains on the AUR and pushes it to your forgejo arch package registry.
+# each package builds in its own job, in parallel (a job matrix). always
+# builds and pushes; it does not check whether that version is already
+# published (forgejo's own docs don't say what a duplicate push does, so
+# watch the first run's logs to see whether it errors or just overwrites).
 #
 # needs:
 #   - a repo secret FORGEJO_TOKEN: a forgejo access token (or password) for
@@ -14,8 +14,9 @@
 #     fetched from the aur rpc api (search by maintainer) each run, so
 #     there's no file to keep in sync
 #
-# untested: i don't have a forgejo instance or an aur package to run this
-# against, so the api paths come from forgejo's docs, not a real run.
+# untested as a whole: i don't have a forgejo instance or a runner to run
+# this against, so the api paths come from forgejo's docs plus your first
+# working run, not from testing the parallel version myself.
 
 name: Build and push AUR packages
 
@@ -28,72 +29,75 @@ env:
   FORGEJO_URL: https://git.tarxz.zip
   FORGEJO_OWNER: odd
   FORGEJO_GROUP: aur # the "group" in /api/packages/{owner}/arch/{group}
-  ARCH: x86_64
   AUR_MAINTAINER: theoddcell # your AUR account name
 
 jobs:
+  list:
+    runs-on: ubuntu-latest
+    outputs:
+      packages: ${{ steps.list.outputs.packages }}
+      count: ${{ steps.list.outputs.count }}
+    steps:
+      - name: Fetch package list from AUR
+        id: list
+        run: |
+          set -euo pipefail
+          packages="$(curl -fsS "https://aur.archlinux.org/rpc/v5/search/$AUR_MAINTAINER?by=maintainer" \
+            | jq -c '[.results[].Name | select(endswith("-git") | not)]')"
+          count="$(echo "$packages" | jq 'length')"
+          echo "packages=$packages" >> "$GITHUB_OUTPUT"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "found $count non-VCS package(s) maintained by $AUR_MAINTAINER:"
+          echo "$packages" | jq -r '.[]'
+
   build:
+    needs: list
+    # an empty matrix is an error in actions, so skip when there's nothing to build
+    if: needs.list.outputs.count != '0'
     runs-on: ubuntu-latest
     container:
       image: archlinux:base-devel
+    strategy:
+      fail-fast: false # one failing package doesn't cancel the others
+      matrix:
+        pkg: ${{ fromJSON(needs.list.outputs.packages) }}
     steps:
       - name: Install prerequisites
         run: |
-          pacman -Sy --noconfirm --needed git curl sudo jq
-
-      - name: Checkout
-        uses: actions/checkout@v4
+          pacman -Sy --noconfirm --needed git curl sudo
 
       - name: Create build user
         # makepkg refuses to run as root
         run: |
           useradd -m builder
           echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
-          chown -R builder:builder "$GITHUB_WORKSPACE"
 
-      - name: Fetch package list from AUR
+      - name: Build ${{ matrix.pkg }}
         run: |
           set -euo pipefail
-          curl -fsS "https://aur.archlinux.org/rpc/v5/search/$AUR_MAINTAINER?by=maintainer" \
-            | jq -r '.results[].Name' > packages.txt
-          echo "found $(wc -l < packages.txt) package(s) maintained by $AUR_MAINTAINER:"
-          cat packages.txt
+          workdir="/tmp/build/${{ matrix.pkg }}"
+          rm -rf "$workdir"
+          mkdir -p "$workdir"
+          chown builder:builder "$workdir"
 
-      - name: Build and push each package
+          sudo -u builder git clone --depth 1 "https://aur.archlinux.org/${{ matrix.pkg }}.git" "$workdir"
+
+          # build without installing, don't sign (forgejo signs its own copy)
+          sudo -u builder bash -c "cd '$workdir' && makepkg --syncdeps --noconfirm --nosign --skippgpcheck --clean"
+
+      - name: Push ${{ matrix.pkg }} to forgejo
         run: |
           set -euo pipefail
+          workdir="/tmp/build/${{ matrix.pkg }}"
 
-          while IFS= read -r pkg; do
-            [ -z "$pkg" ] && continue
-            case "$pkg" in
-              *-git) echo "skipping VCS package: $pkg"; continue ;;
-            esac
-
-            echo "::group::$pkg"
-
-            workdir="/tmp/build/$pkg"
-            rm -rf "$workdir"
-            mkdir -p "$workdir"
-            chown builder:builder "$workdir"
-
-            sudo -u builder git clone --depth 1 "https://aur.archlinux.org/$pkg.git" "$workdir"
-
-            # build without installing, don't sign (forgejo signs its own copy)
-            sudo -u builder bash -c "cd '$workdir' && makepkg --syncdeps --noconfirm --nosign --skippgpcheck --clean"
-
-            for file in "$workdir"/*.pkg.tar.zst; do
-              [ -e "$file" ] || continue
-              fname="$(basename "$file")"
-
-              echo "publishing $fname"
-              curl -fsS -X PUT \
-                "$FORGEJO_URL/api/packages/$FORGEJO_OWNER/arch/$FORGEJO_GROUP" \
-                --user "$FORGEJO_OWNER:$FORGEJO_TOKEN" \
-                --header "Content-Type: application/octet-stream" \
-                --data-binary "@$file"
-            done
-
-            echo "::endgroup::"
-          done < packages.txt
+          for file in "$workdir"/*.pkg.tar.zst; do
+            [ -e "$file" ] || continue
+            echo "publishing $(basename "$file")"
+            curl -fsS -X PUT \
+              "$FORGEJO_URL/api/packages/$FORGEJO_OWNER/arch/$FORGEJO_GROUP" \
+              --user "$FORGEJO_OWNER:$FORGEJO_TOKEN" \
+              --header "Content-Type: application/octet-stream" \
+              --data-binary "@$file"
+          done
         env:
           FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
