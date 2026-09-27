@@ -93,10 +93,10 @@ jobs:
           pacman-key --lsign-key 'obsidianos@noreply.git.tarxz.zip'
           cat >> /etc/pacman.conf <<'EOF'
 
-[obsidianos.git.tarxz.zip]
-SigLevel = Required
-Server = https://git.tarxz.zip/api/packages/obsidianos/arch/obsidianos/$arch
-EOF
+          [obsidianos.git.tarxz.zip]
+          SigLevel = Required
+          Server = https://git.tarxz.zip/api/packages/obsidianos/arch/obsidianos/$arch
+          EOF
           pacman -Sy
 
       - name: Create build user

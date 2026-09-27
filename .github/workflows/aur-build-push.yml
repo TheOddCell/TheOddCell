@@ -89,10 +89,10 @@ jobs:
           pacman-key --lsign-key 'odd@noreply.git.tarxz.zip'
           cat >> /etc/pacman.conf <<'EOF'
 
-[odd.git.tarxz.zip]
-SigLevel = Required
-Server = https://git.tarxz.zip/api/packages/odd/arch/aur/$arch
-EOF
+          [odd.git.tarxz.zip]
+          SigLevel = Required
+          Server = https://git.tarxz.zip/api/packages/odd/arch/aur/$arch
+          EOF
           pacman -Sy
 
       - name: Create build user
