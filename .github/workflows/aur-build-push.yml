@@ -74,6 +74,7 @@ jobs:
             workdir="/tmp/build/$pkg"
             rm -rf "$workdir"
             mkdir -p "$workdir"
+            chown builder:builder "$workdir"
 
             sudo -u builder git clone --depth 1 "https://aur.archlinux.org/$pkg.git" "$workdir"
 
