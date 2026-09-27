@@ -76,8 +76,7 @@ jobs:
         pkg: ${{ fromJSON(needs.list.outputs.packages) }}
     steps:
       - name: Add odd arch repo
-        # done before installing anything else, so the repo is in place (and
-        # preferred over the official repos, since it's listed first) for
+        # done before installing anything else, so the repo is in place for
         # every pacman call that follows, including the prerequisites below
         run: |
           set -euo pipefail
@@ -89,11 +88,12 @@ jobs:
           curl -fsSL -o sign.gpg https://git.tarxz.zip/api/packages/odd/arch/repository.key
           pacman-key --add sign.gpg
           pacman-key --lsign-key 'odd@noreply.git.tarxz.zip'
-          # inserted right after [options], so it's checked before core/extra:
-          # a same-named package here wins over the official one
-          awk '/^\[options\]/{print; print ""; print "[odd.git.tarxz.zip]"; print "SigLevel = Required"; print "Server = https://git.tarxz.zip/api/packages/odd/arch/aur/$arch"; next}1' \
-            /etc/pacman.conf > /tmp/pacman.conf.new
-          mv /tmp/pacman.conf.new /etc/pacman.conf
+          cat >> /etc/pacman.conf <<'EOF'
+
+          [odd.git.tarxz.zip]
+          SigLevel = Required
+          Server = https://git.tarxz.zip/api/packages/odd/arch/aur/$arch
+          EOF
           pacman -Sy
 
       - name: Install prerequisites
