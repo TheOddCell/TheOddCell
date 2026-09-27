@@ -75,25 +75,30 @@ jobs:
       matrix:
         pkg: ${{ fromJSON(needs.list.outputs.packages) }}
     steps:
+      - name: Add odd arch repo
+        # done before installing anything else, so the repo is in place (and
+        # preferred over the official repos, since it's listed first) for
+        # every pacman call that follows, including the prerequisites below
+        run: |
+          set -euo pipefail
+          # pacman-key needs its own keypair to sign/trust keys with; fresh
+          # containers don't have one yet
+          pacman-key --init
+          pacman-key --populate archlinux
+          # curl always exists here already: pacman/libalpm requires it
+          curl -fsSL -o sign.gpg https://git.tarxz.zip/api/packages/odd/arch/repository.key
+          pacman-key --add sign.gpg
+          pacman-key --lsign-key 'odd@noreply.git.tarxz.zip'
+          # inserted right after [options], so it's checked before core/extra:
+          # a same-named package here wins over the official one
+          awk '/^\[options\]/{print; print ""; print "[odd.git.tarxz.zip]"; print "SigLevel = Required"; print "Server = https://git.tarxz.zip/api/packages/odd/arch/aur/$arch"; next}1' \
+            /etc/pacman.conf > /tmp/pacman.conf.new
+          mv /tmp/pacman.conf.new /etc/pacman.conf
+          pacman -Sy
+
       - name: Install prerequisites
         run: |
           pacman -Syu --noconfirm --needed git curl wget sudo jq
-
-      - name: Add odd arch repo
-        # so dependencies already published there can be pulled by pacman
-        # instead of being rebuilt from the aur
-        run: |
-          set -euo pipefail
-          wget -O sign.gpg https://git.tarxz.zip/api/packages/odd/arch/repository.key
-          pacman-key --add sign.gpg
-          pacman-key --lsign-key 'odd@noreply.git.tarxz.zip'
-          cat >> /etc/pacman.conf <<'EOF'
-
-          [odd.git.tarxz.zip]
-          SigLevel = Required
-          Server = https://git.tarxz.zip/api/packages/odd/arch/aur/$arch
-          EOF
-          pacman -Sy
 
       - name: Create build user
         # makepkg refuses to run as root
