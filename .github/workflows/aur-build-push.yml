@@ -1,0 +1,98 @@
+# .github/workflows/aur-build-push.yml
+#
+# weekly: builds every non-"-git" package listed in aur-packages.txt and
+# pushes it to your forgejo arch package registry, skipping any version
+# that's already there (checked the same way pacman itself would fetch it).
+#
+# needs:
+#   - a repo secret FORGEJO_TOKEN: a forgejo access token (or password) for
+#     the account that owns the arch repo, with package write access
+#   - a file aur-packages.txt at the repo root, one aur package name per line
+#     (comments starting with # and blank lines are ignored)
+#
+# untested: i don't have a forgejo instance or an aur package to run this
+# against, so the api paths come from forgejo's docs, not a real run.
+# the existence check in particular is a guess at the download url pacman
+# would use (Server = .../arch/<group>/<arch> per forgejo's docs), since
+# forgejo has no documented "does this version exist" endpoint.
+
+name: Build and push AUR packages
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # every monday, 06:00 utc
+  workflow_dispatch: {} # lets you trigger it by hand from the actions tab
+
+env:
+  FORGEJO_URL: https://git.tarxz.zip
+  FORGEJO_OWNER: odd
+  FORGEJO_GROUP: aur # the "group" in /api/packages/{owner}/arch/{group}
+  ARCH: x86_64
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+    steps:
+      - name: Install prerequisites
+        run: |
+          pacman -Sy --noconfirm --needed git curl sudo
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create build user
+        # makepkg refuses to run as root
+        run: |
+          useradd -m builder
+          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+
+      - name: Build and push each package
+        run: |
+          set -euo pipefail
+
+          while IFS= read -r pkg; do
+            pkg="$(echo "$pkg" | sed 's/#.*//;s/[[:space:]]*$//')"
+            [ -z "$pkg" ] && continue
+            case "$pkg" in
+              *-git) echo "skipping VCS package: $pkg"; continue ;;
+            esac
+
+            echo "::group::$pkg"
+
+            workdir="/tmp/build/$pkg"
+            rm -rf "$workdir"
+            mkdir -p "$workdir"
+
+            sudo -u builder git clone --depth 1 "https://aur.archlinux.org/$pkg.git" "$workdir"
+
+            # build without installing, don't sign (forgejo signs its own copy),
+            # skip if a build for this exact version was already done
+            sudo -u builder bash -c "cd '$workdir' && makepkg --syncdeps --noconfirm --nosign --skippgpcheck --clean"
+
+            for file in "$workdir"/*.pkg.tar.zst; do
+              [ -e "$file" ] || continue
+              fname="$(basename "$file")"
+
+              url="$FORGEJO_URL/api/packages/$FORGEJO_OWNER/arch/$FORGEJO_GROUP/$ARCH/$fname"
+              status="$(curl -s -o /dev/null -w '%{http_code}' -I "$url")"
+
+              if [ "$status" = "200" ]; then
+                echo "$fname already published, skipping"
+                continue
+              fi
+
+              echo "publishing $fname"
+              curl -fsS -X PUT \
+                "$FORGEJO_URL/api/packages/$FORGEJO_OWNER/arch/$FORGEJO_GROUP" \
+                --user "$FORGEJO_OWNER:$FORGEJO_TOKEN" \
+                --header "Content-Type: application/octet-stream" \
+                --data-binary "@$file"
+            done
+
+            echo "::endgroup::"
+          done < aur-packages.txt
+        env:
+          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
