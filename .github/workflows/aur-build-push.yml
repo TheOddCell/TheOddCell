@@ -1,22 +1,22 @@
 # .github/workflows/aur-build-push.yml
 #
-# weekly: builds every non-"-git" package the AUR_MAINTAINER account
-# maintains on the AUR and pushes it to your forgejo arch package registry.
-# each package builds in its own job, in parallel (a job matrix). always
-# builds and pushes; it does not check whether that version is already
-# published (forgejo's own docs don't say what a duplicate push does, so
-# watch the first run's logs to see whether it errors or just overwrites).
+# weekly: builds every package the AUR_MAINTAINER account maintains on the
+# AUR (skipping -git and -bin ones) and pushes it to your forgejo arch
+# package registry, one parallel job per package. -debug split packages are
+# built but never uploaded. if a package depends on other AUR packages
+# (not in the official repos), those are built and installed first, inside
+# the same job, before the package itself is built.
 #
 # needs:
 #   - a repo secret FORGEJO_TOKEN: a forgejo access token (or password) for
 #     the account that owns the arch repo, with package write access
-#   - AUR_MAINTAINER below set to your aur username. the package list is
-#     fetched from the aur rpc api (search by maintainer) each run, so
-#     there's no file to keep in sync
 #
-# untested as a whole: i don't have a forgejo instance or a runner to run
-# this against, so the api paths come from forgejo's docs plus your first
-# working run, not from testing the parallel version myself.
+# always builds and pushes; it does not check whether that version is
+# already published (forgejo's docs don't say what a duplicate push does).
+#
+# untested as a whole: i don't have a runner to try this on, so the new
+# dependency handling in particular comes from the error you pasted, not
+# from a real run.
 
 name: Build and push AUR packages
 
@@ -42,12 +42,13 @@ jobs:
         id: list
         run: |
           set -euo pipefail
+          # skip -git (vcs) and -bin (prebuilt binary) packages
           packages="$(curl -fsS "https://aur.archlinux.org/rpc/v5/search/$AUR_MAINTAINER?by=maintainer" \
-            | jq -c '[.results[].Name | select(endswith("-git") | not)]')"
+            | jq -c '[.results[].Name | select((endswith("-git") or endswith("-bin")) | not)]')"
           count="$(echo "$packages" | jq 'length')"
           echo "packages=$packages" >> "$GITHUB_OUTPUT"
           echo "count=$count" >> "$GITHUB_OUTPUT"
-          echo "found $count non-VCS package(s) maintained by $AUR_MAINTAINER:"
+          echo "found $count package(s) to build for $AUR_MAINTAINER:"
           echo "$packages" | jq -r '.[]'
 
   build:
@@ -57,6 +58,9 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: archlinux:base-devel
+    defaults:
+      run:
+        shell: bash # the container's default is sh, and the script below needs bash
     strategy:
       fail-fast: false # one failing package doesn't cancel the others
       matrix:
@@ -64,7 +68,7 @@ jobs:
     steps:
       - name: Install prerequisites
         run: |
-          pacman -Sy --noconfirm --needed git curl sudo
+          pacman -Syu --noconfirm --needed git curl sudo jq
 
       - name: Create build user
         # makepkg refuses to run as root
@@ -75,23 +79,79 @@ jobs:
       - name: Build ${{ matrix.pkg }}
         run: |
           set -euo pipefail
-          workdir="/tmp/build/${{ matrix.pkg }}"
-          rm -rf "$workdir"
-          mkdir -p "$workdir"
-          chown builder:builder "$workdir"
+          BUILD_ROOT=/tmp/build
+          mkdir -p "$BUILD_ROOT"
+          chown builder:builder "$BUILD_ROOT"
+          declare -A DONE=()
 
-          sudo -u builder git clone --depth 1 "https://aur.archlinux.org/${{ matrix.pkg }}.git" "$workdir"
+          # is this a dependency the official repos can satisfy?
+          in_official_repos() {
+            pacman -Sp --noconfirm "$1" >/dev/null 2>&1
+          }
 
-          # build without installing, don't sign (forgejo signs its own copy)
-          sudo -u builder bash -c "cd '$workdir' && makepkg --syncdeps --noconfirm --nosign --skippgpcheck --clean"
+          # names of everything an aur package depends on, without version constraints
+          aur_deps() {
+            curl -fsSg "https://aur.archlinux.org/rpc/v5/info?arg[]=$1" \
+              | jq -r '.results[0] | ((.Depends // []) + (.MakeDepends // []) + (.CheckDepends // []))[]' \
+              | sed 's/[<>=].*//' | sort -u
+          }
+
+          # is it an aur package at all?
+          in_aur() {
+            [ "$(curl -fsSg "https://aur.archlinux.org/rpc/v5/info?arg[]=$1" | jq '.resultcount')" -gt 0 ]
+          }
+
+          # non-debug package files in a directory
+          package_files() {
+            for f in "$1"/*.pkg.tar.zst; do
+              [ -e "$f" ] || continue
+              pkgname="$(pacman -Qip "$f" | awk '/^Name/ {print $3}')"
+              case "$pkgname" in *-debug) continue ;; esac
+              echo "$f"
+            done
+          }
+
+          # build an aur package into $BUILD_ROOT/<name>, building and
+          # installing its aur-only dependencies first
+          build_pkg() {
+            local name="$1" dep dir="$BUILD_ROOT/$1"
+            [ -n "${DONE[$name]:-}" ] && return 0
+            DONE[$name]=1
+
+            for dep in $(aur_deps "$name"); do
+              in_official_repos "$dep" && continue
+              if in_aur "$dep"; then
+                echo "$name needs $dep from the aur, building it first"
+                build_pkg "$dep"
+                package_files "$BUILD_ROOT/$dep" | xargs -r pacman -U --noconfirm --needed
+              else
+                echo "warning: can't find $dep in the official repos or the aur"
+              fi
+            done
+
+            rm -rf "$dir"
+            mkdir -p "$dir"
+            chown builder:builder "$dir"
+            sudo -u builder git clone --depth 1 "https://aur.archlinux.org/$name.git" "$dir"
+
+            # build without installing, don't sign (forgejo signs its own copy)
+            sudo -u builder bash -c "cd '$dir' && makepkg --syncdeps --noconfirm --nosign --skippgpcheck --clean"
+          }
+
+          build_pkg "${{ matrix.pkg }}"
 
       - name: Push ${{ matrix.pkg }} to forgejo
         run: |
           set -euo pipefail
-          workdir="/tmp/build/${{ matrix.pkg }}"
+          dir="/tmp/build/${{ matrix.pkg }}"
 
-          for file in "$workdir"/*.pkg.tar.zst; do
+          for file in "$dir"/*.pkg.tar.zst; do
             [ -e "$file" ] || continue
+
+            # skip -debug split packages
+            pkgname="$(pacman -Qip "$file" | awk '/^Name/ {print $3}')"
+            case "$pkgname" in *-debug) echo "skipping debug package $(basename "$file")"; continue ;; esac
+
             echo "publishing $(basename "$file")"
             curl -fsS -X PUT \
               "$FORGEJO_URL/api/packages/$FORGEJO_OWNER/arch/$FORGEJO_GROUP" \
