@@ -1,12 +1,11 @@
-# .github/workflows/aur-build-push.yml
+# .github/workflows/aur-build-push-tmp.yml
 #
-# weekly: builds every package the AUR_MAINTAINER account maintains on the
-# AUR (skipping -bin ones, since there's no source to build, plus any
-# package with "obsidian", "obos", or "tmp" in its name, and naevi-git) and
-# pushes it to your forgejo arch package registry, one parallel job per
-# package. the obsidian/obos packages are built separately, by
-# aur-build-push-obsidianos.yml, and the tmp packages by
-# aur-build-push-tmp.yml.
+# weekly: builds only the packages the AUR_MAINTAINER account maintains on
+# the AUR that have "tmp" in their name (skipping -bin ones, since there's
+# no source to build), and pushes them to your forgejo arch package
+# registry, one parallel job per package. every other package is built by
+# aur-build-push.yml, which excludes "tmp" packages so the two workflows
+# don't double-build anything.
 # -git packages are built too, so they'll pick up upstream's latest commit
 # each run. -debug split packages are built but never uploaded. if a
 # package depends on other AUR packages
@@ -24,17 +23,17 @@
 # dependency handling in particular comes from the error you pasted, not
 # from a real run.
 
-name: Build and push AUR packages
+name: Build and push AUR tmp packages
 
 on:
   schedule:
-    - cron: "0 6 * * 1" # every monday, 06:00 utc
+    - cron: "0 7 * * 1" # every monday, 07:00 utc
   workflow_dispatch: {} # lets you trigger it by hand from the actions tab
 
 env:
   FORGEJO_URL: https://git.tarxz.zip
-  FORGEJO_OWNER: odd
-  FORGEJO_GROUP: aur # the "group" in /api/packages/{owner}/arch/{group}
+  FORGEJO_OWNER: tmplinux
+  FORGEJO_GROUP: main # the "group" in /api/packages/{owner}/arch/{group}
   AUR_MAINTAINER: theoddcell # your AUR account name
 
 jobs:
@@ -48,13 +47,12 @@ jobs:
         id: list
         run: |
           set -euo pipefail
-          # skip -bin (prebuilt binary) packages, there's no source to build.
-          # also skip anything with "obsidian", "obos", or "tmp" in the name, and naevi-git specifically.
+          # only packages with "tmp" in the name, skipping -bin (prebuilt
+          # binary) ones, since there's no source to build.
           packages="$(curl -fsS "https://aur.archlinux.org/rpc/v5/search/$AUR_MAINTAINER?by=maintainer" \
             | jq -c '[.results[].Name
                 | select(endswith("-bin") | not)
-                | select(test("obsidian|obos|tmp"; "i") | not)
-                | select(. != "naevi-git")]')"
+                | select(test("tmp"; "i"))]')"
           count="$(echo "$packages" | jq 'length')"
           echo "packages=$packages" >> "$GITHUB_OUTPUT"
           echo "count=$count" >> "$GITHUB_OUTPUT"
@@ -86,14 +84,14 @@ jobs:
           pacman-key --init
           pacman-key --populate archlinux
           # curl always exists here already: pacman/libalpm requires it
-          curl -fsSL -o sign.gpg https://git.tarxz.zip/api/packages/odd/arch/repository.key
+          curl -fsSL -o sign.gpg https://git.tarxz.zip/api/packages/tmplinux/arch/repository.key
           pacman-key --add sign.gpg
-          pacman-key --lsign-key 'odd@noreply.git.tarxz.zip'
+          pacman-key --lsign-key 'tmplinux@noreply.git.tarxz.zip'
           cat >> /etc/pacman.conf <<'EOF'
 
-          [odd.git.tarxz.zip]
+          [tmplinux.git.tarxz.zip]
           SigLevel = Required
-          Server = https://git.tarxz.zip/api/packages/odd/arch/aur/$arch
+          Server = https://git.tarxz.zip/api/packages/tmplinux/arch/main/$arch
           EOF
           pacman -Sy
 
