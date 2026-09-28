@@ -1,13 +1,10 @@
-# .github/workflows/aur-build-push.yml
+# .github/workflows/aur-build-push-germ.yml
 #
-# weekly: builds every package the AUR_MAINTAINER account maintains on the
-# AUR (skipping -bin ones, since there's no source to build, plus any
-# package with "obsidian", "obos", or "tmp" in its name, and naevi-git,
-# probed-git, guierm-git, and germ-git) and pushes it to your forgejo arch
-# package registry, one parallel job per package. the obsidian/obos
-# packages are built separately, by aur-build-push-obsidianos.yml, the tmp
-# packages by aur-build-push-tmp.yml, and probed-git/guierm-git/germ-git by
-# aur-build-push-germ.yml.
+# weekly: builds only probed-git, guierm-git, and germ-git (skipping -bin
+# ones, since there's no source to build, though none of these three are),
+# and pushes them to your forgejo arch package registry, one parallel job
+# per package. every other package is built by aur-build-push.yml, which
+# excludes these three so the two workflows don't double-build anything.
 # -git packages are built too, so they'll pick up upstream's latest commit
 # each run. -debug split packages are built but never uploaded. if a
 # package depends on other AUR packages
@@ -25,17 +22,17 @@
 # dependency handling in particular comes from the error you pasted, not
 # from a real run.
 
-name: Build and push AUR packages
+name: Build and push AUR germ packages
 
 on:
   schedule:
-    - cron: "0 6 * * 1" # every monday, 06:00 utc
+    - cron: "0 8 * * 1" # every monday, 08:00 utc
   workflow_dispatch: {} # lets you trigger it by hand from the actions tab
 
 env:
   FORGEJO_URL: https://git.tarxz.zip
-  FORGEJO_OWNER: odd
-  FORGEJO_GROUP: aur # the "group" in /api/packages/{owner}/arch/{group}
+  FORGEJO_OWNER: oversea-suite
+  FORGEJO_GROUP: main # the "group" in /api/packages/{owner}/arch/{group}
   AUR_MAINTAINER: theoddcell # your AUR account name
 
 jobs:
@@ -49,14 +46,12 @@ jobs:
         id: list
         run: |
           set -euo pipefail
-          # skip -bin (prebuilt binary) packages, there's no source to build.
-          # also skip anything with "obsidian", "obos", or "tmp" in the name, and
-          # naevi-git, probed-git, guierm-git, and germ-git specifically.
+          # only probed-git, guierm-git, and germ-git, skipping -bin
+          # (prebuilt binary) ones, since there's no source to build.
           packages="$(curl -fsS "https://aur.archlinux.org/rpc/v5/search/$AUR_MAINTAINER?by=maintainer" \
             | jq -c '[.results[].Name
                 | select(endswith("-bin") | not)
-                | select(test("obsidian|obos|tmp"; "i") | not)
-                | select(IN(.; "naevi-git", "probed-git", "guierm-git", "germ-git") | not)]')"
+                | select(IN(.; "probed-git", "guierm-git", "germ-git"))]')"
           count="$(echo "$packages" | jq 'length')"
           echo "packages=$packages" >> "$GITHUB_OUTPUT"
           echo "count=$count" >> "$GITHUB_OUTPUT"
@@ -88,14 +83,14 @@ jobs:
           pacman-key --init
           pacman-key --populate archlinux
           # curl always exists here already: pacman/libalpm requires it
-          curl -fsSL -o sign.gpg https://git.tarxz.zip/api/packages/odd/arch/repository.key
+          curl -fsSL -o sign.gpg https://git.tarxz.zip/api/packages/oversea-suite/arch/repository.key
           pacman-key --add sign.gpg
-          pacman-key --lsign-key 'odd@noreply.git.tarxz.zip'
+          pacman-key --lsign-key 'oversea-suite@noreply.git.tarxz.zip'
           cat >> /etc/pacman.conf <<'EOF'
 
-          [odd.git.tarxz.zip]
+          [oversea-suite.git.tarxz.zip]
           SigLevel = Required
-          Server = https://git.tarxz.zip/api/packages/odd/arch/aur/$arch
+          Server = https://git.tarxz.zip/api/packages/oversea-suite/arch/main/$arch
           EOF
           pacman -Sy
 
