@@ -31,7 +31,7 @@ on:
 
 env:
   FORGEJO_URL: https://git.tarxz.zip
-  FORGEJO_OWNER: oversea-suite
+  FORGEJO_OWNER: oversea
   FORGEJO_GROUP: main # the "group" in /api/packages/{owner}/arch/{group}
   AUR_MAINTAINER: theoddcell # your AUR account name
 
@@ -83,14 +83,14 @@ jobs:
           pacman-key --init
           pacman-key --populate archlinux
           # curl always exists here already: pacman/libalpm requires it
-          curl -fsSL -o sign.gpg https://git.tarxz.zip/api/packages/oversea-suite/arch/repository.key
+          curl -fsSL -o sign.gpg https://git.tarxz.zip/api/packages/oversea/arch/repository.key
           pacman-key --add sign.gpg
-          pacman-key --lsign-key 'oversea-suite@noreply.git.tarxz.zip'
+          pacman-key --lsign-key 'oversea@noreply.git.tarxz.zip'
           cat >> /etc/pacman.conf <<'EOF'
 
-          [oversea-suite.git.tarxz.zip]
+          [oversea.git.tarxz.zip]
           SigLevel = Required
-          Server = https://git.tarxz.zip/api/packages/oversea-suite/arch/main/$arch
+          Server = https://git.tarxz.zip/api/packages/oversea/arch/main/$arch
           EOF
           pacman -Sy
 
