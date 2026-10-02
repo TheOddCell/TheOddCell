@@ -26,6 +26,18 @@ jobs:
           mkdir /rootfs
           pacstrap -c -K /rootfs base nano networkmanager busybox
           systemctl --root=/rootfs enable NetworkManager
+          # add odd's repo inside the rootfs and install r00t from it
+          curl -fsSL -o /rootfs/sign.gpg https://git.tarxz.zip/api/packages/odd/arch/repository.key
+          arch-chroot /rootfs pacman-key --add /sign.gpg
+          arch-chroot /rootfs pacman-key --lsign-key 'odd@noreply.git.tarxz.zip'
+          rm -f /rootfs/sign.gpg
+          cat >>/rootfs/etc/pacman.conf <<'EOF'
+          [odd.git.tarxz.zip]
+          SigLevel = Required
+          Server = https://git.tarxz.zip/api/packages/odd/arch/aur/$arch
+          EOF
+          arch-chroot /rootfs pacman -Syyu --noconfirm
+          arch-chroot /rootfs pacman -S --noconfirm r00t
           # trim the rootfs so the tarball stays under cloudflare's 100 MB upload limit
           rm -rf /rootfs/var/cache/pacman/pkg/* /rootfs/var/lib/pacman/sync/*
           rm -rf /rootfs/usr/share/{doc,man,info,gtk-doc}
