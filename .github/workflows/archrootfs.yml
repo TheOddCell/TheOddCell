@@ -1,0 +1,52 @@
+name: arch-rootfs
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+      options: --privileged
+    env:
+      FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+      PACKAGE_URL: https://git.tarxz.zip/api/packages/odd/generic/arch/latest/latest.tar.xz
+    steps:
+      - name: Install tooling
+        run: |
+          pacman-key --init
+          pacman-key --populate archlinux
+          pacman -Syu --noconfirm arch-install-scripts xz
+
+      - name: Build rootfs
+        run: |
+          mkdir /rootfs
+          pacstrap -c -K /rootfs base nano networkmanager busybox openssh
+          systemctl --root=/rootfs enable NetworkManager
+          rm -rf /rootfs/var/cache/pacman/pkg/*
+          tar --numeric-owner --xattrs --acls -C /rootfs -cpf - . | xz -T0 -9 > arch.tar.xz
+          ls -lh arch.tar.xz
+
+      - name: Upload to Forgejo
+        run: |
+          upload() {
+            curl -sS -o /dev/null -w '%{http_code}' \
+              --user "odd:${FORGEJO_TOKEN}" \
+              --upload-file arch.tar.xz \
+              "$PACKAGE_URL"
+          }
+
+          code=$(upload)
+          if [ "$code" = 409 ]; then
+            echo "409 from upload, deleting the existing file and retrying"
+            curl -sS -f -X DELETE --user "odd:${FORGEJO_TOKEN}" "$PACKAGE_URL"
+            code=$(upload)
+          fi
+
+          case "$code" in
+            2??) echo "uploaded ($code)" ;;
+            *) echo "upload failed with $code" >&2; exit 1 ;;
+          esac
