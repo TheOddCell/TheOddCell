@@ -31,22 +31,48 @@ jobs:
           ls -lh arch.tar.xz
 
       - name: Upload to Forgejo
+        shell: bash
         run: |
           upload() {
-            curl -sS -o /dev/null -w '%{http_code}' \
+            curl -sS -D headers.txt -o body.txt -w '%{http_code}' \
               --user "odd:${FORGEJO_TOKEN}" \
               --upload-file arch.tar.xz \
-              "$PACKAGE_URL"
+              "$PACKAGE_URL" || echo 000
           }
 
-          code=$(upload)
-          if [ "$code" = 409 ]; then
-            echo "409 from upload, deleting the existing file and retrying"
-            curl -sS -f -X DELETE --user "odd:${FORGEJO_TOKEN}" "$PACKAGE_URL"
-            code=$(upload)
-          fi
+          show() {
+            echo "--- response headers" >&2
+            cat headers.txt >&2 || true
+            echo "--- response body" >&2
+            head -c 2000 body.txt >&2 || true
+            echo >&2
+          }
 
-          case "$code" in
-            2??) echo "uploaded ($code)" ;;
-            *) echo "upload failed with $code" >&2; exit 1 ;;
-          esac
+          for attempt in 1 2 3; do
+            code=$(upload)
+            if [ "$code" = 409 ]; then
+              echo "409 from upload, deleting the existing file and retrying"
+              curl -sS -f -X DELETE --user "odd:${FORGEJO_TOKEN}" "$PACKAGE_URL" || echo "delete failed" >&2
+              code=$(upload)
+            fi
+
+            case "$code" in
+              2??)
+                echo "uploaded ($code)"
+                exit 0
+                ;;
+              5?? | 000)
+                echo "attempt $attempt: got $code" >&2
+                show
+                sleep 20
+                ;;
+              *)
+                echo "upload failed with $code" >&2
+                show
+                exit 1
+                ;;
+            esac
+          done
+
+          echo "giving up after 3 attempts" >&2
+          exit 1
