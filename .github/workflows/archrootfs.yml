@@ -42,26 +42,31 @@ jobs:
         shell: bash
         run: |
           upload() {
-            curl -sS -D headers.txt -o body.txt -w '%{http_code}' \
+            rm -f headers.txt body.txt
+            curl -sS --http1.1 -D headers.txt -o body.txt -w '%{http_code}' \
               --user "odd:${FORGEJO_TOKEN}" \
               --upload-file arch.tar.xz \
-              "$PACKAGE_URL" || echo 000
+              "$PACKAGE_URL"
           }
 
           show() {
-            echo "--- response headers" >&2
-            cat headers.txt >&2 || true
-            echo "--- response body" >&2
-            head -c 2000 body.txt >&2 || true
-            echo >&2
+            if [ -f headers.txt ]; then
+              echo "--- response headers" >&2
+              cat headers.txt >&2
+            fi
+            if [ -f body.txt ]; then
+              echo "--- response body" >&2
+              head -c 2000 body.txt >&2
+              echo >&2
+            fi
           }
 
           for attempt in 1 2 3; do
-            code=$(upload)
+            code=$(upload) || true
             if [ "$code" = 409 ]; then
               echo "409 from upload, deleting the existing file and retrying"
               curl -sS -f -X DELETE --user "odd:${FORGEJO_TOKEN}" "$PACKAGE_URL" || echo "delete failed" >&2
-              code=$(upload)
+              code=$(upload) || true
             fi
 
             case "$code" in
