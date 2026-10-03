@@ -29,6 +29,7 @@ jobs:
           # add odd's repo inside the rootfs and install r00t from it
           ls -l /rootfs/etc/pacman.conf* || true
           [ -f /rootfs/etc/pacman.conf ] || cp /etc/pacman.conf /rootfs/etc/pacman.conf
+          arch-chroot /rootfs pacman-key --populate archlinux
           curl -fsSL -o /rootfs/sign.gpg https://git.tarxz.zip/api/packages/odd/arch/repository.key
           arch-chroot /rootfs pacman-key --add /sign.gpg
           arch-chroot /rootfs pacman-key --lsign-key 'odd@noreply.git.tarxz.zip'
