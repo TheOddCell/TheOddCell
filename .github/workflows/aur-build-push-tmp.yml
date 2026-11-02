@@ -31,7 +31,7 @@ on:
   workflow_dispatch: {} # lets you trigger it by hand from the actions tab
 
 env:
-  FORGEJO_URL: https://git.tarxz.zip
+  FORGEJO_URL: https://tarxz.zip
   FORGEJO_OWNER: tmplinux
   FORGEJO_GROUP: main # the "group" in /api/packages/{owner}/arch/{group}
   AUR_MAINTAINER: theoddcell # your AUR account name
@@ -84,14 +84,14 @@ jobs:
           pacman-key --init
           pacman-key --populate archlinux
           # curl always exists here already: pacman/libalpm requires it
-          curl -fsSL -o sign.gpg https://git.tarxz.zip/api/packages/tmplinux/arch/repository.key
+          curl -fsSL -o sign.gpg https://tarxz.zip/api/packages/tmplinux/arch/repository.key
           pacman-key --add sign.gpg
-          pacman-key --lsign-key 'tmplinux@noreply.git.tarxz.zip'
+          pacman-key --lsign-key 'tmplinux@noreply.tarxz.zip'
           cat >> /etc/pacman.conf <<'EOF'
 
-          [tmplinux.git.tarxz.zip]
+          [tmplinux.tarxz.zip]
           SigLevel = Required
-          Server = https://git.tarxz.zip/api/packages/tmplinux/arch/main/$arch
+          Server = https://tarxz.zip/api/packages/tmplinux/arch/main/$arch
           EOF
           pacman -Sy
 
