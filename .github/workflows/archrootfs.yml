@@ -13,7 +13,7 @@ jobs:
       options: --privileged
     env:
       FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
-      PACKAGE_URL: https://tarxz.zip/api/packages/odd/generic/arch/latest/latest.tar.xz
+      PACKAGE_URL: https://git.tarxz.zip/api/packages/odd/generic/arch/latest/latest.tar.xz
     steps:
       - name: Install tooling
         run: |
@@ -30,14 +30,14 @@ jobs:
           ls -l /rootfs/etc/pacman.conf* || true
           [ -f /rootfs/etc/pacman.conf ] || cp /etc/pacman.conf /rootfs/etc/pacman.conf
           arch-chroot /rootfs pacman-key --populate archlinux
-          curl -fsSL -o /rootfs/sign.gpg https://tarxz.zip/api/packages/odd/arch/repository.key
+          curl -fsSL -o /rootfs/sign.gpg https://git.tarxz.zip/api/packages/odd/arch/repository.key
           arch-chroot /rootfs pacman-key --add /sign.gpg
           arch-chroot /rootfs pacman-key --lsign-key 'odd@noreply.tarxz.zip'
           rm -f /rootfs/sign.gpg
           cat >>/rootfs/etc/pacman.conf <<'EOF'
           [odd.tarxz.zip]
           SigLevel = Required
-          Server = https://tarxz.zip/api/packages/odd/arch/aur/$arch
+          Server = https://git.tarxz.zip/api/packages/odd/arch/aur/$arch
           EOF
           arch-chroot /rootfs pacman -Syyu --noconfirm
           arch-chroot /rootfs pacman -S --noconfirm r00t

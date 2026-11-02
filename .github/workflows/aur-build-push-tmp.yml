@@ -84,14 +84,14 @@ jobs:
           pacman-key --init
           pacman-key --populate archlinux
           # curl always exists here already: pacman/libalpm requires it
-          curl -fsSL -o sign.gpg https://tarxz.zip/api/packages/tmplinux/arch/repository.key
+          curl -fsSL -o sign.gpg https://git.tarxz.zip/api/packages/tmplinux/arch/repository.key
           pacman-key --add sign.gpg
           pacman-key --lsign-key 'tmplinux@noreply.tarxz.zip'
           cat >> /etc/pacman.conf <<'EOF'
 
           [tmplinux.tarxz.zip]
           SigLevel = Required
-          Server = https://tarxz.zip/api/packages/tmplinux/arch/main/$arch
+          Server = https://git.tarxz.zip/api/packages/tmplinux/arch/main/$arch
           EOF
           pacman -Sy
 

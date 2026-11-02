@@ -83,14 +83,14 @@ jobs:
           pacman-key --init
           pacman-key --populate archlinux
           # curl always exists here already: pacman/libalpm requires it
-          curl -fsSL -o sign.gpg https://tarxz.zip/api/packages/oversea/arch/repository.key
+          curl -fsSL -o sign.gpg https://git.tarxz.zip/api/packages/oversea/arch/repository.key
           pacman-key --add sign.gpg
           pacman-key --lsign-key 'oversea@noreply.tarxz.zip'
           cat >> /etc/pacman.conf <<'EOF'
 
           [oversea.tarxz.zip]
           SigLevel = Required
-          Server = https://tarxz.zip/api/packages/oversea/arch/main/$arch
+          Server = https://git.tarxz.zip/api/packages/oversea/arch/main/$arch
           EOF
           pacman -Sy
 
